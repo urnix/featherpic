@@ -4,6 +4,21 @@ import gm from "gm";
 let goodSize = 50000;
 let goodQuality = 50;
 
+async function compressAllImages(dir) {
+    const userDir = path.join(sitesDir, userId);
+    const imgsDir = path.join(userDir, 'imgs');
+    const imgs = fs.readdirSync(imgsDir);
+    for (const img of imgs) {
+        if (img.endsWith('.webp')) {
+            continue;
+        }
+        const imgPath = path.join(imgsDir, img);
+        let oldImgPath = imgPath.replace(path.extname(imgPath), '_old' + path.extname(imgPath));
+        fs.copyFileSync(imgPath, oldImgPath);
+        await compressImage(oldImgPath, imgPath);
+    }
+}
+
 export async function compressImage(inputPath, outputPath) {
     try {
         let quality = 100;
