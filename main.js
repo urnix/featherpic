@@ -2,10 +2,8 @@ import path from "path";
 import fs from "fs";
 import gm from "gm";
 
-let goodSize = 50000;
-let goodQuality = 50;
-
-export async function compressAllImages(dir, newDir) {
+export async function compressAllImages(dir, newDir, goodSize, callback = () => {
+}) {
     if (!fs.existsSync(dir)) {
         console.error('Directory not found:', dir);
         return;
@@ -14,36 +12,42 @@ export async function compressAllImages(dir, newDir) {
         fs.mkdirSync(newDir);
     }
     let files = fs.readdirSync(dir);
-    files = files.filter(file => fs.lstatSync(path.join(dir, file)).isDirectory() || /\.(jpe?g|png|gif|webp|tif)$/i.test(file));
-    files.sort((a, b) => {
-            let aIsDir = fs.lstatSync(path.join(dir, a)).isDirectory();
-            let bIsDir = fs.lstatSync(path.join(dir, b)).isDirectory();
-            if (aIsDir && !bIsDir) {
-                return -1;
-            }
-            if (!aIsDir && bIsDir) {
-                return 1;
-            }
-            return a.localeCompare(b);
+    files = files.filter(file => {
+        let join = path.join(dir, file);
+        let existsSync = fs.existsSync(join);
+        if (!existsSync) {
+            console.error('File not found:', join);
+            fs.appendFileSync('./problems.txt', join + '\n');
         }
-    );
-    console.log(`files: ${JSON.stringify(files)}`);
+        return existsSync && fs.lstatSync(join).isDirectory() || /\.(jpe?g|png|gif|webp|tif)$/i.test(file);
+    });
+    files.sort((a, b) => {
+        let aNum = parseInt(a);
+        let bNum = parseInt(b);
+        return aNum && bNum ? aNum - bNum : a.localeCompare(b);
+    });
 
     async function handleFileORDir(file) {
-        console.log(`file: ${JSON.stringify(file)}`);
         const filePath = path.join(dir, file);
         const newFilePath = path.join(newDir, file);
+        if (!fs.existsSync(filePath)) {
+            fs.appendFileSync('./problems.txt', 'File not found: ' + filePath + '\n');
+            console.error('File not found:', filePath);
+            return;
+        }
+
         if (fs.lstatSync(filePath).isDirectory()) {
             if (!fs.existsSync(newFilePath)) {
                 fs.mkdirSync(newFilePath);
             }
-            await compressAllImages(filePath, newFilePath);
+            await compressAllImages(filePath, newFilePath, goodSize, callback);
         } else {
             if (fs.existsSync(newFilePath)) {
                 console.log('File already exists:', newFilePath);
                 return;
             }
-            await compressImage(filePath, newFilePath);
+            await compressImage(filePath, newFilePath, goodSize);
+            callback(filePath);
         }
     }
 
@@ -52,34 +56,35 @@ export async function compressAllImages(dir, newDir) {
     }
 }
 
-export async function compressImage(inputPath, outputPath) {
-
+export async function compressImage(inputPath, outputPath, goodSize) {
     try {
-        let quality = 100;
-        let percent = 100;
-        let size;
+        let percent = 50;
+        let size = fs.statSync(inputPath).size;
 
-        while (!size || size > goodSize && quality > goodQuality && percent > 0) {
-            await compressInner(inputPath, outputPath, quality, percent);
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            size = fs.statSync(outputPath).size;
-            // quality -= 5;
-            percent /= 2;
-            console.log(path.basename(inputPath) + ` quality: ${quality}, percent: ${percent}%, size: ${size / 1000} kb`);
+        if (size <= goodSize) {
+            fs.copyFileSync(inputPath, outputPath);
+            console.log(`Image copied: ${path.basename(inputPath)}`);
+            return;
         }
-        console.log(`Image compressed finished with ${quality}% quality, percent: ${percent}%, size: ${size / 1000} kb`);
+
+        while (size > goodSize && percent > 0) {
+            await compressInner(inputPath, outputPath, percent);
+            size = fs.statSync(outputPath).size;
+            percent /= 2;
+            console.log(path.basename(inputPath) + ` percent: ${percent}%, size: ${size / 1000} kb`);
+        }
+        console.log(`Image compressed finished: percent: ${percent}%, size: ${size / 1000} kb`);
     } catch (error) {
         console.error('Error compressing image:', error);
     }
 }
 
-function compressInner(inputPath, outputPath, quality, percent) {
+function compressInner(inputPath, outputPath, percent) {
     return new Promise((resolve, reject) => {
         gm(inputPath)
             .resize(percent + '%')
             .noProfile()
             .setFormat('webp')
-            .quality(quality)
             .write(outputPath, function (error) {
                 if (error) {
                     reject(error);
